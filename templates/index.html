@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ברוך הבא לצ'אט ראיונות עבודה</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body {
+            direction: rtl;
+            text-align: right;
+        }
+        .loading-message {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .message-container {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+        .message {
+            padding: 10px;
+            border-radius: 10px;
+            flex: 1;
+        }
+        .bot {
+            background-color: #f1f1f1;
+            text-align: left;
+        }
+        .user {
+            background-color: #d1ffd1;
+            text-align: right;
+        }
+        .play-button {
+            margin-left: 10px;
+            cursor: pointer;
+            background-color: transparent;
+            border: none;
+            font-size: 1.2em;
+        }
+        input[type="text"] {
+            width: 100%;
+            box-sizing: border-box;
+            direction: rtl;
+        }
+        .chat-container {
+            width: 100%;
+            max-width: 600px;
+            margin: auto;
+        }
+        #processing-message {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+        #speech-button {
+            display: inline-block;
+            cursor: pointer;
+            padding: 5px 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        #speech-button.recording {
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            50% {
+                background-color: #ff0000;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <h1>ברוך הבא לראיון עבודה</h1>
+        <h2 id="instruction-text">נשמח שתעלה את הקורות חיים לפה בשביל להתחיל את הראיון</h2>
+        <div id="upload-section">
+            <form id="upload-form" enctype="multipart/form-data">
+                <input type="file" id="resume" name="resume" accept=".pdf, .doc, .docx" required>
+                <button type="submit">העלה קורות חיים</button>
+            </form>
+        </div>
+        <div id="loading-message" class="loading-message">
+            כבר מתחילים, אנחנו עוברים על הקורות חיים...
+        </div>
+        <div id="chat-box" style="display: none;"></div>
+        <div id="processing-message" class="loading-message">
+            תודה על המענה:),מנתחים את התשובה כבר נמשיך...
+        </div>
+        <form id="chat-form" style="display: none;">
+            <input type="text" id="question" placeholder="הקלד את התשובה שלך..." required>
+            <button type="submit">שלח</button>
+            <button type="button" id="speech-button">🎤</button>
+        </form>
+        <a id="report-link" href="/report" style="display: none;">צפה בדוח</a>
+    </div>
+    <script>
+        async function handleUploadFormSubmit(e) {
+            e.preventDefault();
+            const resumeInput = document.getElementById('resume');
+            const formData = new FormData();
+            formData.append('resume', resumeInput.files[0]);
+
+            // Hide upload form and show loading message
+            document.getElementById('upload-section').style.display = 'none';
+            document.getElementById('loading-message').style.display = 'block';
+            document.getElementById('instruction-text').style.display = 'none';
+
+            // Simulate file upload
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Hide loading message and show chat
+                document.getElementById('loading-message').style.display = 'none';
+                document.getElementById('chat-box').style.display = 'block';
+                document.getElementById('chat-form').style.display = 'flex';
+
+                addMessageToChat('bot', data.first_question);
+                speakText(data.first_question);
+            }
+        }
+
+        async function handleChatFormSubmit(e) {
+            e.preventDefault();
+            const questionInput = document.getElementById('question');
+            const question = questionInput.value;
+
+            // Add user answer to chat
+            addMessageToChat('user', question);
+
+            // Clear input
+            questionInput.value = '';
+
+            // Show processing message
+            document.getElementById('processing-message').style.display = 'block';
+
+            // Fetch next question from server
+            const response = await fetch('/ask', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({ 'question': question })
+            });
+
+            const data = await response.json();
+
+            // Hide processing message
+            document.getElementById('processing-message').style.display = 'none';
+
+            // Add next question to chat
+            addMessageToChat('bot', data.answer);
+            speakText(data.answer);
+
+            // Show report link if interview is over
+            if (data.end) {
+                document.getElementById('report-link').style.display = 'block';
+                document.getElementById('chat-form').style.display = 'none';
+            }
+
+            // Scroll to bottom
+            const chatBox = document.getElementById('chat-box');
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function addMessageToChat(sender, message) {
+            const chatBox = document.getElementById('chat-box');
+            const messageContainer = document.createElement('div');
+            messageContainer.classList.add('message-container');
+
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message', sender);
+            messageElement.textContent = message;
+
+            const playButton = document.createElement('button');
+            playButton.classList.add('play-button');
+            playButton.innerHTML = '🔊';
+            playButton.addEventListener('click', () => speakText(message));
+
+            messageContainer.appendChild(messageElement);
+            messageContainer.appendChild(playButton);
+            chatBox.appendChild(messageContainer);
+        }
+
+        function speakText(text) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'he-IL';
+            window.speechSynthesis.speak(utterance);
+        }
+
+        document.getElementById('upload-form').addEventListener('submit', handleUploadFormSubmit);
+        document.getElementById('chat-form').addEventListener('submit', handleChatFormSubmit);
+
+        // Web Speech API
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'he-IL'; // Set language to Hebrew
+
+        recognition.onresult = function(event) {
+            const questionInput = document.getElementById('question');
+            const transcript = event.results[0][0].transcript;
+            questionInput.value = transcript;
+        };
+
+        recognition.onerror = function(event) {
+            console.error('Speech recognition error', event);
+        };
+
+        document.getElementById('speech-button').addEventListener('click', () => {
+            recognition.start();
+            document.getElementById('speech-button').classList.add('recording');
+        });
+
+        recognition.onend = function() {
+            document.getElementById('speech-button').classList.remove('recording');
+        };
+    </script>
+</body>
+</html>
